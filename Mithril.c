@@ -20,7 +20,6 @@
 
 // TODO : Delete a line is broken
 // TODO : adding a line is weird
-// TODO : backspace doesn't really work (seems to work fine in the middle of a sentence, but it erase the char at cursor and not before)
 
 enum EditorKey {
     BACKSPACE = 127,
@@ -379,10 +378,10 @@ void editorBackspace() {
     int pos = currentSession.cursorCol + currentSession.colOffset;
 
     if (pos == 0 || pos > row->rawSize) {
-        //pos = row->size;
         return;
     }
 
+    //We delete the char before
     memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
 
     --(row->rawSize);
@@ -587,6 +586,21 @@ void clearAllLinesAndGoToStart(struct SmallStr *str) {
     setCursorAtStart();
 }
 
+void editorInvertColor(struct SmallStr *str) {
+    appendToStr(str, "\x1b[7m", 4);
+}
+
+void editorNormalColor(struct SmallStr *str) {
+    appendToStr(str, "\x1b[m", 3);
+}
+
+void editorDrawStatusBar(struct SmallStr *str) {
+    editorInvertColor(str);
+
+    appendToStr(str, "Status bar will be here", 23);
+
+    editorNormalColor(str);
+}
 
 void editorDrawRows(struct SmallStr *str) {
 
@@ -597,10 +611,13 @@ void editorDrawRows(struct SmallStr *str) {
     }
 
     //printf("%d rows\r\n", currentSession.screenRows);
-    for (int y = 0; y < env.screenRows; ++y) {
+
+    int drawableRows = env.screenRows - 2;
+
+    for (int y = 0; y < drawableRows; ++y) {
         int fileRow = y + currentSession.rowOffset;
         if (fileRow >= tab->numRows) {
-            if (tab->numRows == 0 && y == (env.screenRows / 3)) {
+            if ((tab->numRows == 0) && (y == (drawableRows / 3) + 1)) {
 
                 char welcome[80];
                 int welcomeLen = snprintf(welcome, sizeof(welcome), "-- Mithril -- version %s", VERSION);
@@ -644,9 +661,7 @@ void editorDrawRows(struct SmallStr *str) {
 
 
         appendToStr(str, "\x1b[K", 3);
-        if (y < env.screenRows - 1) {
-            appendToStr(str, "\r\n", 2);
-        }
+        appendToStr(str, "\r\n", 2);
     }
 }
 
@@ -658,7 +673,10 @@ void editorRefreshScreen() {
 
     appendToStr(&str, "\x1b[?25l", 6);
     appendToStr(&str, "\x1b[H", 3);
+
     editorDrawRows(&str);
+    editorDrawStatusBar(&str);
+
 
     char buf[32];
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH",
@@ -758,7 +776,10 @@ void processKeyPress() {
 
     switch (c) {
         case '\r':
-
+            fatal("Someone pressed enter! :D");
+            break;
+        case '\n':
+            fatal("Someone pressend enter! :D 4r");
             break;
         case CTRL_KEY('q'): {
             struct SmallStr str = SMALLSTR_INIT;
