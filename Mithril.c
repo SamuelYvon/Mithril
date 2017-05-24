@@ -594,10 +594,40 @@ void editorNormalColor(struct SmallStr *str) {
     appendToStr(str, "\x1b[m", 3);
 }
 
+
+void eraseLineFromCursor(struct SmallStr *str) {
+    appendToStr(str, "\x1b[K", 3);
+}
+
 void editorDrawStatusBar(struct SmallStr *str) {
     editorInvertColor(str);
 
-    appendToStr(str, "Status bar will be here", 23);
+    char status[env.screenCols];
+
+    int row = currentSession.rowOffset + currentSession.cursorRow + 1;
+    int col = currentSession.colOffset + currentSession.cursorCol + 1;
+
+    int currentTab = currentSession.currentTabIdx + 1;
+    int totalTab = currentSession.numTabs;
+
+    struct Tab *tab = getCurrentTab();
+
+    char *fileName = tab->fileName;
+
+    int statusLen =
+            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s",
+                     row, col, currentTab, totalTab, fileName);
+
+    if (statusLen > env.screenCols) {
+        statusLen = env.screenCols;
+    }
+
+    appendToStr(str, status, statusLen);
+
+    //make the rest of the line color inverted
+    for (int i = env.screenCols - statusLen; i > 0; --i) {
+        appendToStr(str, " ", 1);
+    }
 
     editorNormalColor(str);
 }
@@ -660,7 +690,7 @@ void editorDrawRows(struct SmallStr *str) {
         }
 
 
-        appendToStr(str, "\x1b[K", 3);
+        eraseLineFromCursor(str);
         appendToStr(str, "\r\n", 2);
     }
 }
