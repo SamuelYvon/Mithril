@@ -378,12 +378,12 @@ void editorBackspace() {
 
     int pos = currentSession.cursorCol + currentSession.colOffset;
 
-    if (pos < 0 || pos >= row->rawSize) {
+    if (pos == 0 || pos > row->rawSize) {
         //pos = row->size;
         return;
     }
 
-    memmove(&row->rawContent[pos], &row->rawContent[pos + 1], (size_t) (row->rawSize - pos - 1));
+    memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
 
     --(row->rawSize);
     --(currentSession.cursorCol);
@@ -740,6 +740,7 @@ void editorCursorMove(int code) {
             }
             break;
         case ARROW_RIGHT:
+
             if (row && currentSession.cursorCol < row->rawSize) {
                 currentSession.cursorCol++;
             } else if (currentSession.cursorRow + currentSession.rowOffset < (currentTab->numRows - 1)) {
