@@ -69,8 +69,10 @@ struct Tab {
 struct Environment {
     int screenRows;
     int screenCols;
+    int usableTextScreenRows;
     /*** The user's terminal settings ***/
     struct termios orig_termios;
+
 };
 
 struct Environment env;
@@ -511,8 +513,8 @@ void editorScroll() {
 
     if (currentSession.cursorRow < currentSession.rowOffset) {
         currentSession.rowOffset = currentSession.cursorRow;
-    } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.screenRows)) {
-        currentSession.rowOffset = (currentSession.cursorRow - env.screenRows) + 1;
+    } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
+        currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
     }
 
     if (currentSession.cursorCol < currentSession.colOffset) {
@@ -540,6 +542,8 @@ void init() {
     if (getWindowSize(rows, cols) == -1) {
         fatal("getWindowSize");
     }
+
+    env.usableTextScreenRows = *rows - 2;
 }
 
 void disableRawMode() {
@@ -642,12 +646,10 @@ void editorDrawRows(struct SmallStr *str) {
 
     //printf("%d rows\r\n", currentSession.screenRows);
 
-    int drawableRows = env.screenRows - 2;
-
-    for (int y = 0; y < drawableRows; ++y) {
+    for (int y = 0; y < env.usableTextScreenRows; ++y) {
         int fileRow = y + currentSession.rowOffset;
         if (fileRow >= tab->numRows) {
-            if ((tab->numRows == 0) && (y == (drawableRows / 3) + 1)) {
+            if ((tab->numRows == 0) && (y == (env.usableTextScreenRows / 3) + 1)) {
 
                 char welcome[80];
                 int welcomeLen = snprintf(welcome, sizeof(welcome), "-- Mithril -- version %s", VERSION);
@@ -826,7 +828,7 @@ void processKeyPress() {
             break;
         case PG_UP:
         case PG_DOWN: {
-            int times = env.screenRows;
+            int times = env.usableTextScreenRows;
             while ((times--) > 0) {
                 editorCursorMove((c == PG_UP) ? ARROW_UP : ARROW_DOWN);
             }
