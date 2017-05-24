@@ -183,7 +183,7 @@ int readKey() {
 struct Tab *getCurrentTab() {
 
     struct Tab *tab;
-    //ToDO : die if not in bounds
+
     if ((currentSession.numTabs) > 0 && (currentSession.currentTabIdx < currentSession.numTabs)) {
         tab = &currentSession.tabs[currentSession.currentTabIdx];
     } else {
@@ -204,8 +204,8 @@ struct Row *getCurrentRow() {
 
     if (currentTab) {
         int realRowIdx = (currentSession.cursorRow + currentSession.rowOffset);
-//ToDO : die if not in bounds
-        if ((realRowIdx > 0) && (realRowIdx < currentTab->numRows)) {
+
+        if ((realRowIdx > -1) && (realRowIdx < currentTab->numRows)) {
             row = &currentTab->rows[realRowIdx];
         } else {
             row = NULL;
@@ -740,7 +740,6 @@ void editorCursorMove(int code) {
             }
             break;
         case ARROW_RIGHT:
-
             if (row && currentSession.cursorCol < row->rawSize) {
                 currentSession.cursorCol++;
             } else if (currentSession.cursorRow + currentSession.rowOffset < (currentTab->numRows - 1)) {
