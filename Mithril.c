@@ -92,6 +92,7 @@ struct Session {
     int currentTabIdx;
     int numTabs;
     struct Tab *tabs;
+    char *msg;
 };
 
 struct Session currentSession;
@@ -202,9 +203,9 @@ struct Row *getCurrentRow() {
     struct Row *row;
 
     struct Tab *currentTab = getCurrentTab();
-
+    currentSession.msg = NULL;
     if (currentTab) {
-        int realRowIdx = (currentSession.cursorRow + currentSession.rowOffset);
+        int realRowIdx = (currentSession.cursorRow);
 
         if ((realRowIdx > -1) && (realRowIdx < currentTab->numRows)) {
             row = &currentTab->rows[realRowIdx];
@@ -332,6 +333,11 @@ void editorAppendRow(char *s, size_t len) {
 
     struct Tab *currentTab = getCurrentTab();
 
+    if (NULL == currentTab) {
+        fatal("No current tab (append row)");
+        return;
+    }
+
     //add more room for the rows
     size_t rowSize = sizeof(struct Row);
     currentTab->rows = realloc(currentTab->rows, rowSize * (currentTab->numRows + 1));
@@ -348,7 +354,7 @@ void editorAppendRow(char *s, size_t len) {
 
     editorUpdateRow(&currentTab->rows[at]);
 
-    ++currentTab->numRows;
+    currentTab->numRows = currentTab->numRows + 1;
 }
 
 /*** Editor operation ***/
@@ -361,11 +367,12 @@ void editorInsertChar(int c) {
         return;
     }
 
-    if (currentSession.cursorRow == currentTab->numRows) {
+    currentSession.msg = NULL;
+    if ((currentSession.cursorRow) >= (currentTab->numRows)) {
         editorAppendRow("", 0);
     }
 
-    editorRowInsertChar(getCurrentRow(), currentSession.cursorCol, c);
+    editorRowInsertChar(getCurrentRow(), (currentSession.cursorCol + currentSession.colOffset), c);
     ++currentSession.cursorCol;
 }
 
@@ -377,7 +384,7 @@ void editorBackspace() {
         return;
     }
 
-    int pos = currentSession.cursorCol + currentSession.colOffset;
+    int pos = currentSession.cursorCol;
 
     if (pos == 0 || pos > row->rawSize) {
         return;
@@ -540,7 +547,9 @@ void init() {
     int *rows = &env.screenRows;
 
     if (getWindowSize(rows, cols) == -1) {
-        fatal("getWindowSize");
+        //fatal("getWindowSize");
+        *cols = 10;
+        *rows = 10;
     }
 
     env.usableTextScreenRows = *rows - 2;
@@ -608,8 +617,8 @@ void editorDrawStatusBar(struct SmallStr *str) {
 
     char status[env.screenCols];
 
-    int row = currentSession.rowOffset + currentSession.cursorRow + 1;
-    int col = currentSession.colOffset + currentSession.cursorCol + 1;
+    int row = currentSession.cursorRow + 1;
+    int col = currentSession.cursorCol + 1;
 
     int currentTab = currentSession.currentTabIdx + 1;
     int totalTab = currentSession.numTabs;
@@ -619,8 +628,9 @@ void editorDrawStatusBar(struct SmallStr *str) {
     char *fileName = tab->fileName;
 
     int statusLen =
-            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s",
-                     row, col, currentTab, totalTab, fileName);
+            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s DEBUG: %s",
+                     row, col, currentTab, totalTab, fileName,
+                     currentSession.msg);
 
     if (statusLen > env.screenCols) {
         statusLen = env.screenCols;
