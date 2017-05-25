@@ -47,9 +47,6 @@ void fatal(char *message) {
 struct Row {
     int rawSize;
     char *rawContent;
-
-    int realSize;
-    char *realContent;
 };
 
 struct Tab {
@@ -89,7 +86,6 @@ struct Session {
     int currentTabIdx;
     int numTabs;
     struct Tab *tabs;
-    char *msg;
 };
 
 struct Session currentSession;
@@ -105,6 +101,7 @@ int readKey() {
     while ((lenRead = read(STDIN_FILENO, &cRead, 1) != 1)) {
         if (lenRead == -1 && errno != EAGAIN) {
             fatal("read");
+            return -1;
         }
     }
 
@@ -200,7 +197,6 @@ struct Row *getCurrentRow() {
     struct Row *row;
 
     struct Tab *currentTab = getCurrentTab();
-    currentSession.msg = NULL;
     if (currentTab) {
         int realRowIdx = (currentSession.cursorRow);
 
@@ -273,7 +269,7 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** row operations ***/
 
-void editorUpdateRow(struct Row *row) {
+void rowClearTabs(struct Row *row) {
     int tabs = 0;
     int j;
 
@@ -283,28 +279,49 @@ void editorUpdateRow(struct Row *row) {
         }
     }
 
-    if (row->realContent) free(row->realContent); // clear since length might not be good
+    if (tabs > 0) {
+        char *newContent = malloc((size_t) ((row->rawSize + 1) + (tabs * 7) + 1));
 
-    row->realContent = malloc((size_t) ((row->rawSize + 1) + (tabs * 7) + 1));
+        int idx = 0;
 
-    int idx = 0;
+        for (j = 0; j < row->rawSize; ++j) {
 
-    for (j = 0; j < row->rawSize; ++j) {
-
-        if (row->rawContent[j] == '\t') {
-            row->realContent[idx++] = ' ';// add one because the tab takes at least one space
-            while (idx % 8 != 0) { // go to a tab stop (each 8 char is a tab col)
-                row->realContent[idx++] = ' ';
+            if (row->rawContent[j] == '\t') {
+                newContent[idx++] = ' ';// add one because the tab takes at least one space
+                while (idx % 8 != 0) { // go to a tab stop (each 8 char is a tab col)
+                    newContent[idx++] = ' ';
+                }
+            } else {
+                newContent[idx++] = row->rawContent[j];
             }
-        } else {
-            row->realContent[idx++] = row->rawContent[j];
         }
-    }
 
-    row->realContent[idx] = '\0';
-    row->realSize = idx;
+        free(row->rawContent);
+        row->rawContent = newContent;
+        row->rawSize = idx;
+    }
 }
 
+void editorRowInsertTab(struct Row *row, int at) {
+
+    if (!row) {
+        fatal("Missing row (editorInsertChar)");
+        return;
+    }
+
+    if (at < 0 || at > row->rawSize) {
+        at = row->rawSize;
+    }
+
+    row->rawContent = realloc(row->rawContent, (size_t) row->rawSize + 5);
+
+    memmove(&row->rawContent[at + 4], &row->rawContent[at], (size_t) (row->rawSize - at + 1));
+    row->rawSize += 4;
+
+    for (int i = 0; i < 4; ++i) {
+        row->rawContent[at + i] = ' ';
+    }
+}
 
 void editorRowInsertChar(struct Row *row, int at, int c) {
 
@@ -322,8 +339,6 @@ void editorRowInsertChar(struct Row *row, int at, int c) {
     memmove(&row->rawContent[at + 1], &row->rawContent[at], (size_t) (row->rawSize - at + 1));
     ++row->rawSize;
     row->rawContent[at] = (char) c;
-
-    editorUpdateRow(row);
 }
 
 void editorAppendRow(char *s, size_t len) {
@@ -343,13 +358,11 @@ void editorAppendRow(char *s, size_t len) {
 
     currentTab->rows[at].rawSize = (int) len;
     currentTab->rows[at].rawContent = malloc(len + 1);
-    currentTab->rows[at].realSize = 0;
-    currentTab->rows[at].realContent = NULL;
     //fill the content
     memcpy(currentTab->rows[at].rawContent, s, len);
     currentTab->rows[at].rawContent[len] = '\0';
 
-    editorUpdateRow(&currentTab->rows[at]);
+    rowClearTabs(&currentTab->rows[at]);
 
     currentTab->numRows = currentTab->numRows + 1;
 }
@@ -364,13 +377,28 @@ void editorInsertChar(int c) {
         return;
     }
 
-    currentSession.msg = NULL;
     if ((currentSession.cursorRow) >= (currentTab->numRows)) {
         editorAppendRow("", 0);
     }
 
     editorRowInsertChar(getCurrentRow(), (currentSession.cursorCol + currentSession.colOffset), c);
     ++currentSession.cursorCol;
+}
+
+void onTabKeyPress() {
+    struct Tab *currentTab = getCurrentTab();
+
+    if (!currentTab) {
+        fatal("Missing tab (editorInsertChar)");
+        return;
+    }
+
+    if ((currentSession.cursorRow) >= (currentTab->numRows)) {
+        editorAppendRow("", 0);
+    }
+
+    editorRowInsertTab(getCurrentRow(), (currentSession.cursorCol + currentSession.colOffset));
+    currentSession.cursorCol += 4;
 }
 
 void editorInsertNewRow() {
@@ -410,11 +438,10 @@ void editorInsertNewRow() {
     char *s;
 
     if (currentRow) {
-        //TODO : check if its really that cause of the tabs
         if (currentSession.cursorCol <= currentRow->rawSize) {
             len = currentRow->rawSize - currentSession.cursorCol;
             s = malloc((size_t) len);
-            s = memcpy(s, &currentRow->realContent[currentSession.cursorCol], (size_t) len);
+            s = memcpy(s, &currentRow->rawContent[currentSession.cursorCol], (size_t) len);
 
             int newLen = currentSession.cursorCol;
 
@@ -427,7 +454,6 @@ void editorInsertNewRow() {
 
             currentRow->rawContent[newLen] = '\0';
             currentRow->rawSize = newLen;
-            editorUpdateRow(currentRow);
         } else {
             s = NULL;
             len = 0;
@@ -439,17 +465,18 @@ void editorInsertNewRow() {
 
     currentTab->rows[at].rawSize = len;
     currentTab->rows[at].rawContent = malloc((size_t) (len + 1));
-    currentTab->rows[at].realSize = 0;
-    currentTab->rows[at].realContent = NULL;
     //fill the content
     memcpy(currentTab->rows[at].rawContent, s, (size_t) len);
     currentTab->rows[at].rawContent[len] = '\0';
 
-    editorUpdateRow(&currentTab->rows[at]);
-
     currentTab->numRows = currentTab->numRows + 1;
 
     free(s);
+
+    ++currentSession.cursorRow;
+
+    currentSession.cursorCol = 0;
+    currentSession.colOffset = 0;
 }
 
 void editorScroll() {
@@ -498,13 +525,10 @@ void editorRemoveRow() {
         memcpy(&previousRow->rawContent[previousSize], currentRow->rawContent, (size_t) currentRow->rawSize);
 
         previousRow->rawSize += currentRow->rawSize;
-        previousRow->realContent[previousRow->rawSize] = '\0';
+        previousRow->rawContent[previousRow->rawSize] = '\0';
 
         //that line is about to be deleted, so let's clear it up
         free(currentRow->rawContent);
-        free(currentRow->realContent);
-
-        editorUpdateRow(previousRow);
     }
 
     int len = currentTab->numRows - currentRowIdx;
@@ -556,7 +580,6 @@ void editorBackspace() {
 
     --(row->rawSize);
     --(currentSession.cursorCol);
-    editorUpdateRow(row);
 }
 
 /*** file i/o ***/
@@ -788,9 +811,8 @@ void editorDrawStatusBar(struct SmallStr *str) {
     char *fileName = tab->fileName;
 
     int statusLen =
-            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s DEBUG: %s",
-                     row, col, currentTab, totalTab, fileName,
-                     currentSession.msg);
+            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s",
+                     row, col, currentTab, totalTab, fileName);
 
     if (statusLen > env.screenCols) {
         statusLen = env.screenCols;
@@ -812,9 +834,8 @@ void editorDrawRows(struct SmallStr *str) {
 
     if (!tab) {
         fatal("No tab (editorDrawRow");
+        return;
     }
-
-    //printf("%d rows\r\n", currentSession.screenRows);
 
     for (int y = 0; y < env.usableTextScreenRows; ++y) {
         int fileRow = y + currentSession.rowOffset;
@@ -844,7 +865,7 @@ void editorDrawRows(struct SmallStr *str) {
                 appendToStr(str, "~", 1);
             }
         } else {
-            int len = tab->rows[fileRow].realSize;
+            int len = tab->rows[fileRow].rawSize;
             len = len - currentSession.colOffset;
             //make sure the len is never more than what we actually can display
             //if we have a col offset of 5 on a len 10 sentence
@@ -858,7 +879,7 @@ void editorDrawRows(struct SmallStr *str) {
                 len = env.screenCols;
             }
 
-            appendToStr(str, (tab->rows[fileRow].realContent + currentSession.colOffset), len);
+            appendToStr(str, (tab->rows[fileRow].rawContent + currentSession.colOffset), len);
         }
 
 
@@ -990,6 +1011,10 @@ void processKeyPress() {
             clearStr(&str);
             exit(0);
         }
+        case '\t' : {
+            onTabKeyPress();
+        }
+            break;
         case ARROW_UP:
         case ARROW_DOWN:
         case ARROW_LEFT:
@@ -1022,8 +1047,9 @@ void processKeyPress() {
         case '\x1b':
             break;
 
-        case CTRL_KEY('o'):
+        case CTRL_KEY('s'): {
             editorSave();
+        }
             break;
 
         default:
