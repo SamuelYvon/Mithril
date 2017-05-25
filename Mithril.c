@@ -376,6 +376,92 @@ void editorInsertChar(int c) {
     ++currentSession.cursorCol;
 }
 
+void editorInsertNewRow() {
+    // The idea is to take the remaining of the line
+    // Insert it in a new row
+    // append the new row in the middle of the tab
+
+    struct Tab *currentTab = getCurrentTab();
+
+    if (NULL == currentTab) {
+        fatal("No current tab (append row)");
+        return;
+    }
+
+    int currentRowIdx = currentSession.cursorRow;
+    int nextRowIdx = currentRowIdx + 1;
+
+    size_t rowSize = sizeof(struct Row);
+    //get room for one more
+    currentTab->rows = realloc(currentTab->rows, rowSize * (currentTab->numRows + 1));
+
+    int at;
+
+    if (nextRowIdx > (currentTab->numRows)) {
+        at = currentTab->numRows;
+    } else {
+        at = nextRowIdx;
+        // if we are not on a new line, move the data
+        memmove(&currentTab->rows[nextRowIdx + 1],
+                &currentTab->rows[nextRowIdx],
+                rowSize * ((size_t) (currentTab->numRows - nextRowIdx)));
+    }
+
+    struct Row *currentRow = getCurrentRow();
+
+    int len;
+    char *s;
+
+    if (currentRow) {
+        //TODO : check if its really that cause of the tabs
+        if (currentSession.cursorCol <= currentRow->rawSize) {
+            len = currentRow->rawSize - currentSession.cursorCol;
+            s = malloc((size_t) len);
+            s = memcpy(s, &currentRow->realContent[currentSession.cursorCol], (size_t) len);
+
+            int newLen = currentSession.cursorCol;
+
+            if (newLen < 1) {
+                fatal("The new length should never me smaller than one");
+                return;
+            }
+
+            currentRow->rawContent = realloc(currentRow->rawContent, (size_t) (sizeof(char) * (newLen)));
+
+            if (NULL == currentRow->rawContent) {
+                fatal("Failed to shrink the current row (editorInsertRow)");
+                return;
+            }
+
+            currentRow->rawContent[newLen] = '\0';
+            currentRow->rawSize = newLen;
+            editorUpdateRow(currentRow);
+        } else {
+            s = malloc(1);
+            *s = ' ';
+            len = 1;
+        }
+    } else {
+        s = malloc(1);
+        *s = ' ';
+        len = 1;
+    }
+
+    currentTab->rows[at].rawSize = len;
+    currentTab->rows[at].rawContent = malloc((size_t) (len + 1));
+    currentTab->rows[at].realSize = 0;
+    currentTab->rows[at].realContent = NULL;
+    //fill the content
+    memcpy(currentTab->rows[at].rawContent, s, (size_t) len);
+    currentTab->rows[at].rawContent[len] = '\0';
+
+    editorUpdateRow(&currentTab->rows[at]);
+
+    currentTab->numRows = currentTab->numRows + 1;
+
+    free(s);
+}
+
 void editorBackspace() {
     struct Row *row = getCurrentRow();
 
@@ -821,7 +907,7 @@ void processKeyPress() {
             fatal("Someone pressed enter! :D");
             break;
         case '\n':
-            fatal("Someone pressend enter! :D 4r");
+            editorInsertNewRow();
             break;
         case CTRL_KEY('q'): {
             struct SmallStr str = SMALLSTR_INIT;
