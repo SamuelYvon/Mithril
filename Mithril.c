@@ -421,12 +421,7 @@ void editorInsertNewRow() {
 
             int newLen = currentSession.cursorCol;
 
-            if (newLen < 1) {
-                fatal("The new length should never me smaller than one");
-                return;
-            }
-
-            currentRow->rawContent = realloc(currentRow->rawContent, (size_t) (sizeof(char) * (newLen)));
+            currentRow->rawContent = realloc(currentRow->rawContent, (size_t) (sizeof(char) * (newLen + 1)));
 
             if (NULL == currentRow->rawContent) {
                 fatal("Failed to shrink the current row (editorInsertRow)");
@@ -462,17 +457,83 @@ void editorInsertNewRow() {
     free(s);
 }
 
+void editorScroll() {
+
+    if (currentSession.cursorRow < currentSession.rowOffset) {
+        currentSession.rowOffset = currentSession.cursorRow;
+    } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
+        currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
+    }
+
+    if (currentSession.cursorCol < currentSession.colOffset) {
+        currentSession.colOffset = currentSession.cursorCol;
+    } else if (currentSession.cursorCol >= (currentSession.colOffset + env.screenCols)) {
+        currentSession.colOffset = (currentSession.cursorCol - env.screenCols) + 1;
+    }
+}
+
+//ToDo: if we delete at the beginning of a row, we want to merge the current row with the last one
+void editorRemoveRow() {
+
+    struct Tab *currentTab = getCurrentTab();
+
+    if (NULL == currentTab) {
+        fatal("Not tab is currently loaded (editorRemoveRow)");
+        return;
+    }
+
+    struct Row *currentRow = getCurrentRow();
+    int currentRowIdx = currentSession.cursorRow;
+
+    if (NULL == currentRow) {
+        goto go_back;
+    }
+
+    if (currentRow->rawSize >= 1) {
+        goto go_back; //ToDo : the merge should be here
+    }
+
+    int len = currentTab->numRows - currentRowIdx;
+
+    memmove(&currentTab->rows[currentRowIdx], &currentTab->rows[currentRowIdx + 1], sizeof(struct Row) * len);
+    currentTab->rows = realloc(currentTab->rows, sizeof(struct Row) * (currentTab->numRows - 1));
+    --currentTab->numRows;
+    goto go_back;
+
+    go_back:
+    if (currentRowIdx > 0) {
+        --currentSession.cursorRow;
+
+        struct Row *previousRow = getCurrentRow();
+
+        if (previousRow) {
+            currentSession.cursorCol = previousRow->rawSize;
+
+            if (previousRow->rawSize < env.screenCols) {
+                currentSession.colOffset = 0;
+            } else {
+                editorScroll();
+            }
+        }
+    }
+}
+
 void editorBackspace() {
     struct Row *row = getCurrentRow();
 
     if (!row) {
-        fatal("Missing row (backspace)");
+        if (currentSession.cursorRow > 0) {
+            --currentSession.cursorRow;
+        }
         return;
     }
 
     int pos = currentSession.cursorCol;
 
-    if (pos == 0 || pos > row->rawSize) {
+    if (pos < 1) {
+        editorRemoveRow();
+        return;
+    } else if (pos > row->rawSize) {
         return;
     }
 
@@ -600,21 +661,6 @@ void appendToStr(struct SmallStr *str, const char *s, int len) {
 
 void clearStr(struct SmallStr *str) {
     free(str->b);
-}
-
-void editorScroll() {
-
-    if (currentSession.cursorRow < currentSession.rowOffset) {
-        currentSession.rowOffset = currentSession.cursorRow;
-    } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
-        currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
-    }
-
-    if (currentSession.cursorCol < currentSession.colOffset) {
-        currentSession.colOffset = currentSession.cursorCol;
-    } else if (currentSession.cursorCol >= (currentSession.colOffset + env.screenCols)) {
-        currentSession.colOffset = (currentSession.cursorCol - env.screenCols) + 1;
-    }
 }
 
 void init() {
