@@ -18,9 +18,6 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 
-// TODO : Delete a line is broken
-// TODO : adding a line is weird
-
 enum EditorKey {
     BACKSPACE = 127,
     ARROW_LEFT = 1000,
@@ -432,14 +429,12 @@ void editorInsertNewRow() {
             currentRow->rawSize = newLen;
             editorUpdateRow(currentRow);
         } else {
-            s = malloc(1);
-            *s = ' ';
-            len = 1;
+            s = NULL;
+            len = 0;
         }
     } else {
-        s = malloc(1);
-        *s = ' ';
-        len = 1;
+        s = NULL;
+        len = 0;
     }
 
     currentTab->rows[at].rawSize = len;
@@ -472,7 +467,7 @@ void editorScroll() {
     }
 }
 
-//ToDo: if we delete at the beginning of a row, we want to merge the current row with the last one
+
 void editorRemoveRow() {
 
     struct Tab *currentTab = getCurrentTab();
@@ -489,8 +484,27 @@ void editorRemoveRow() {
         goto go_back;
     }
 
-    if (currentRow->rawSize >= 1) {
-        goto go_back; //ToDo : the merge should be here
+    if (currentRow->rawSize > 0 && currentSession.cursorRow > 0) {
+        --currentSession.cursorRow;
+        struct Row *previousRow = getCurrentRow();
+        ++currentSession.cursorRow;
+
+        int previousSize = previousRow->rawSize;
+
+        previousRow->rawContent = realloc(previousRow->rawContent,
+                                          (size_t) (previousRow->rawSize +
+                                                    currentRow->rawSize + 1));
+
+        memcpy(&previousRow->rawContent[previousSize], currentRow->rawContent, (size_t) currentRow->rawSize);
+
+        previousRow->rawSize += currentRow->rawSize;
+        previousRow->realContent[previousRow->rawSize] = '\0';
+
+        //that line is about to be deleted, so let's clear it up
+        free(currentRow->rawContent);
+        free(currentRow->realContent);
+
+        editorUpdateRow(previousRow);
     }
 
     int len = currentTab->numRows - currentRowIdx;
@@ -498,7 +512,6 @@ void editorRemoveRow() {
     memmove(&currentTab->rows[currentRowIdx], &currentTab->rows[currentRowIdx + 1], sizeof(struct Row) * len);
     currentTab->rows = realloc(currentTab->rows, sizeof(struct Row) * (currentTab->numRows - 1));
     --currentTab->numRows;
-    goto go_back;
 
     go_back:
     if (currentRowIdx > 0) {
@@ -539,6 +552,7 @@ void editorBackspace() {
 
     //We delete the char before
     memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
+    row->rawContent = realloc(row->rawContent, (size_t) (row->rawSize));
 
     --(row->rawSize);
     --(currentSession.cursorCol);
@@ -547,6 +561,20 @@ void editorBackspace() {
 
 /*** file i/o ***/
 
+/**
+ * Gets all the rows and render the string representation
+ * of those rows
+ * @param bufLen the size of the buffer (will be filled in)
+ * @return the buffer. Please do not forget to free the buffer!
+ * Comment
+ * SY
+ * Its kinda bad that we expect the caller to close the ressources
+ * of the callee. Of course hes gonna forget
+ * Maybe we should do it all on the side of the caller. Have a get buffer lenght
+ * method, and then he creates it, then we fill it with another method. Its a lot
+ * more work, but its also way safer.
+ * Ill keep this in because it came from the tutorial, but its not good
+ */
 char *editorRowsToString(int *bufLen) {
 
     struct Tab *tab = getCurrentTab();
