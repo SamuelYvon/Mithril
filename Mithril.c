@@ -28,7 +28,9 @@ enum EditorKey {
     HOME_KEY,
     END_KEY,
     PG_UP,
-    PG_DOWN
+    PG_DOWN,
+    MOVE_TAB_LEFT,
+    MOVE_TAB_RIGHT
 };
 
 void fatal(char *message) {
@@ -117,11 +119,16 @@ int readKey() {
         }
 
         if (seq[0] == '[') {
+
+
             if (seq[1] >= '0' && seq[1] <= '9') {
 
                 if (read(STDIN_FILENO, &seq[2], 1) != 1) {
                     return '\x1b';
                 }
+
+                char v = seq[2];
+                //fatal(&v);
 
                 if (seq[2] == '~') {
                     switch (seq[1]) {
@@ -141,6 +148,26 @@ int readKey() {
                             return END_KEY;
                         default:
                             return '\x1b';
+                    }
+                } else if (seq[2] == ';') {
+
+                    if (read(STDIN_FILENO, &seq[0], 1) != 1) {
+                        return '\x1b';
+                    }
+
+                    if (read(STDIN_FILENO, &seq[1], 1) != 1) {
+                        return '\x1b';
+                    }
+
+                    if (seq[0] == '5') {
+                        switch (seq[1]) {
+                            case 'C':
+                                return MOVE_TAB_RIGHT;
+                            case 'D':
+                                return MOVE_TAB_LEFT;
+                            default:
+                                return '\x1b';
+                        }
                     }
                 }
 
@@ -165,6 +192,7 @@ int readKey() {
         }
 
         return '\x1b';
+    } else if (cRead == '\033') {
 
     }
 
@@ -352,7 +380,12 @@ void editorAppendRow(char *s, size_t len) {
 
     //add more room for the rows
     size_t rowSize = sizeof(struct Row);
-    currentTab->rows = realloc(currentTab->rows, rowSize * (currentTab->numRows + 1));
+
+    if (currentTab->numRows == 0) {
+        currentTab->rows = malloc(rowSize);
+    } else {
+        currentTab->rows = realloc(currentTab->rows, rowSize * (currentTab->numRows + 1));
+    }
 
     int at = currentTab->numRows;
 
@@ -656,14 +689,36 @@ void editorSave() {
     free(buf);
 }
 
-void editorOpen(char *filename) {
+static size_t tabSize = sizeof(struct Tab);
 
+void createTab() {
+    int currentTabCount = currentSession.numTabs;
+
+    currentSession.tabs = realloc(currentSession.tabs, tabSize * (currentTabCount + 1));
+
+    ++currentSession.numTabs;
+    ++currentSession.currentTabIdx;
+
+    struct Tab *currTab = getCurrentTab();
+    currTab->numRows = 0;
+    currTab->rows = NULL;
+    currTab->fileName = NULL;
+}
+
+void editorOpen(char *filename) {
+    createTab();
     struct Tab *currentTab = getCurrentTab();
+
+    if (NULL == currentTab) {
+        fatal("No current tab (editor open)");
+        return;
+    }
 
     FILE *fp = fopen(filename, "r");
 
     if (!fp) {
         fatal("fopen");
+        return;
     } else {
         currentTab->fileName = filename;
     }
@@ -721,10 +776,8 @@ void init() {
     currentSession.cursorRow = 0;
     currentSession.cursorCol = 0;
 
-    currentSession.currentTabIdx = 0;
-    currentSession.numTabs = 1;
-    size_t tabSize = sizeof(struct Tab);
-    currentSession.tabs = malloc(tabSize);
+    currentSession.currentTabIdx = -1;
+    currentSession.numTabs = 0;
 
     int *cols = &env.screenCols;
     int *rows = &env.screenRows;
@@ -1052,6 +1105,17 @@ void processKeyPress() {
         }
             break;
 
+        case MOVE_TAB_LEFT:
+            if (currentSession.currentTabIdx > 0) {
+                --currentSession.currentTabIdx;
+            }
+            break;
+        case MOVE_TAB_RIGHT:
+            if (currentSession.currentTabIdx + 1 < currentSession.numTabs) {
+                ++currentSession.currentTabIdx;
+            }
+            break;
+
         default:
             editorInsertChar(c);
             break;
@@ -1064,9 +1128,8 @@ int main(int argc, char *argv[]) {
     setRawMode();
     init();
 
-    //Load the files in args
-    if (argc > 1) {
-        editorOpen(argv[1]);
+    for (int argPos = 1; argPos < argc; ++argPos) {
+        editorOpen(argv[argPos]);
     }
 
 #pragma clang diagnostic push
