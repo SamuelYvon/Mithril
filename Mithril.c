@@ -90,6 +90,7 @@ struct Session {
     int numTabs;
     struct Tab *tabs;
     /*** message editor row ***/
+    int messageLength;
     struct Row messageRow;
     /*** mvmt locked ***/
     int locked;
@@ -538,13 +539,17 @@ void editorInsertNewRow() {
 
 void editorScroll() {
 
+    //TODO : This scroll thing is confusing
 
     if (currentSession.cursorRow < currentSession.rowOffset) {
         currentSession.rowOffset = currentSession.cursorRow;
-    } else if (currentSession.locked) {
-        currentSession.rowOffset = (currentSession.cursorRow - env.screenRows) + 2;
     } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
-        currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
+        if (currentSession.locked) {
+            currentSession.rowOffset =
+                    (currentSession.cursorRow - env.screenRows) + (env.screenRows - (env.usableTextScreenRows + 1));
+        } else {
+            currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
+        }
     }
 
     /*
@@ -654,6 +659,10 @@ void editorBackspace() {
 
 
     if (currentSession.cursorCol > 0) {
+// TODO : Somehow currentSession.messagelength does not set to the right value, it seems its < 1
+        if (currentSession.locked && ((currentSession.cursorCol - 1) < currentSession.messageLength)) {
+            return;
+        }
 
         //We delete the char before
         memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
@@ -831,6 +840,7 @@ void init() {
     currentSession.numTabs = 0;
 
     currentSession.locked = 0;
+    currentSession.messageLength = 0;
 
     int *cols = &env.screenCols;
     int *rows = &env.screenRows;
@@ -938,11 +948,9 @@ void editorDrawStatusRow(struct SmallStr *str) {
 
     struct Row row = currentSession.messageRow;
 
-    //if (NULL != row) {
-    appendToStr(str, (row.rawContent + currentSession.colOffset), row.rawSize);
-    //} else {
-    // fatal("NO STATUS ROW");
-    //}
+    if (currentSession.locked) {
+        appendToStr(str, (row.rawContent + currentSession.colOffset), row.rawSize);
+    }
 
     eraseLineFromCursor(str);
     appendToStr(str, "\r\n", 2);
@@ -1212,18 +1220,14 @@ void editorPrompt(char *msg, int msgLen) {
     int previousRow = currentSession.cursorRow;
     int previousCol = currentSession.cursorCol;
 
-    //if(NULL != messageRow) {
-    //  free(messageRow);
-    //}
-
-    //messageRow = malloc(sizeof(struct Row));
-
     messageRow->rawContent = realloc(messageRow->rawContent, (size_t) msgLen);
     messageRow->rawSize = msgLen;
     memcpy(messageRow->rawContent, msg, (size_t) msgLen);
 
     currentSession.cursorRow = env.screenRows - 2;
     currentSession.cursorCol = msgLen;
+
+    currentSession.messageLength = msgLen;
 
     currentSession.locked = 1;
 
@@ -1232,9 +1236,10 @@ void editorPrompt(char *msg, int msgLen) {
         processKeyPress();
     }
 
+    // after the editor unlock
+
     currentSession.cursorRow = previousRow;
     currentSession.cursorCol = previousCol;
-
     //free(msg);
 }
 
