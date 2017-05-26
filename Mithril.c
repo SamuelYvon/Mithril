@@ -751,9 +751,16 @@ void editorSave() {
 static size_t tabSize = sizeof(struct Tab);
 
 void createTab() {
-    int currentTabCount = currentSession.numTabs;
+
+    const int currentTabCount = currentSession.numTabs;
 
     currentSession.tabs = realloc(currentSession.tabs, tabSize * (currentTabCount + 1));
+    if (currentTabCount > 0) {
+        const int currentTabIdx = currentSession.currentTabIdx;
+        memmove(&currentSession.tabs[currentTabIdx + 2],
+                &currentSession.tabs[currentTabIdx + 1],
+                sizeof(struct Tab) * (currentTabCount - currentTabIdx - 1));
+    }
 
     ++currentSession.numTabs;
     ++currentSession.currentTabIdx;
@@ -765,8 +772,40 @@ void createTab() {
     currTab->changesCount = 0;
 }
 
-void editorOpen(char *filename) {
-    createTab();
+void closeTab() {
+
+    const int currentTabCount = currentSession.numTabs;
+    const int currentTabIdx = currentSession.currentTabIdx;
+
+    size_t tabSize = sizeof(struct Tab);
+
+    if (currentTabIdx < (currentTabCount - 1)) {
+        memmove(&currentSession.tabs[currentTabIdx], &currentSession.tabs[currentTabIdx + 1],
+                tabSize * (currentTabCount - currentTabIdx - 1));
+    }
+
+    currentSession.tabs = realloc(currentSession.tabs, tabSize * (currentTabCount - 1));
+
+    if (currentTabIdx > 0) {
+        --currentSession.currentTabIdx;
+    }
+
+    if (currentSession.numTabs > 0) {
+        --currentSession.numTabs;
+    }
+
+    if (currentSession.numTabs == 0) {
+        currentSession.currentTabIdx = -1;
+        createTab();
+    }
+}
+
+void editorOpen(char *filename, int openInNewTab) {
+
+    if (openInNewTab) {
+        createTab();
+    }
+
     struct Tab *currentTab = getCurrentTab();
 
     if (NULL == currentTab) {
@@ -846,7 +885,6 @@ void init() {
     int *rows = &env.screenRows;
 
     if (getWindowSize(rows, cols) == -1) {
-        //fatal("getWindowSize");
         *cols = 10;
         *rows = 10;
     }
@@ -1134,6 +1172,8 @@ void editorCursorMove(int code) {
     }
 }
 
+void openFile();
+
 void processKeyPress() {
     int c = readKey();
 
@@ -1195,6 +1235,21 @@ void processKeyPress() {
             editorSave();
         }
             break;
+        case CTRL_KEY('o') : {
+            openFile();
+        }
+            break;
+
+
+        case CTRL_KEY('t') : {
+            createTab();
+        }
+            break;
+
+        case CTRL_KEY('w') : {
+            closeTab();
+        }
+            break;
 
         case MOVE_TAB_LEFT:
             if (currentSession.currentTabIdx > 0) {
@@ -1220,9 +1275,10 @@ void editorPrompt(char *msg, int msgLen) {
     int previousRow = currentSession.cursorRow;
     int previousCol = currentSession.cursorCol;
 
-    messageRow->rawContent = realloc(messageRow->rawContent, (size_t) msgLen);
+    messageRow->rawContent = realloc(messageRow->rawContent, (size_t) msgLen + 1);
     messageRow->rawSize = msgLen;
     memcpy(messageRow->rawContent, msg, (size_t) msgLen);
+    messageRow->rawContent[msgLen] = '\0';
 
     currentSession.cursorRow = env.screenRows - 2;
     currentSession.cursorCol = msgLen;
@@ -1244,16 +1300,38 @@ void editorPrompt(char *msg, int msgLen) {
 }
 
 
+void openFile() {
+    /*
+    editorPrompt("Open in current file (y/n/c): ", 30);
+    if ((currentSession.messageRow.rawSize - 30) > 0) {
+        char c = currentSession.messageRow.rawContent[30];
+
+        int openInOtherTab;
+
+        if (c == 'y') {
+            openInOtherTab = 0;
+        } else if (c == 'n') {
+            openInOtherTab = 1;
+        } else {
+            return;
+        }*/
+
+    editorPrompt("Please enter a file name (None to exit): ", 41);
+    if ((currentSession.messageRow.rawSize - 41) > 0) {
+        editorOpen(&currentSession.messageRow.rawContent[41], 0);
+    }
+    //}
+
+}
+
 int main(int argc, char *argv[]) {
 
     setRawMode();
     init();
 
     for (int argPos = 1; argPos < argc; ++argPos) {
-        editorOpen(argv[argPos]);
+        editorOpen(argv[argPos], 1);
     }
-
-    editorPrompt("Hello world!", 12);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
