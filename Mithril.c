@@ -54,6 +54,7 @@ struct Row {
 struct Tab {
     char *fileName;
     int numRows;
+    int changesCount;
     struct Row *rows;
 };
 
@@ -88,6 +89,10 @@ struct Session {
     int currentTabIdx;
     int numTabs;
     struct Tab *tabs;
+    /*** message editor row ***/
+    struct Row messageRow;
+    /*** mvmt locked ***/
+    int locked;
 };
 
 struct Session currentSession;
@@ -224,6 +229,10 @@ struct Tab *getCurrentTab() {
 struct Row *getCurrentRow() {
     struct Row *row;
 
+    if (currentSession.locked) {
+        return &currentSession.messageRow;
+    }
+
     struct Tab *currentTab = getCurrentTab();
     if (currentTab) {
         int realRowIdx = (currentSession.cursorRow);
@@ -353,6 +362,9 @@ void editorRowInsertTab(struct Row *row, int at) {
 
 void editorRowInsertChar(struct Row *row, int at, int c) {
 
+    struct Tab *currentTab = getCurrentTab();
+    ++currentTab->changesCount;
+
     if (!row) {
         fatal("Missing row (editorInsertChar)");
         return;
@@ -377,6 +389,8 @@ void editorAppendRow(char *s, size_t len) {
         fatal("No current tab (append row)");
         return;
     }
+
+    ++currentTab->changesCount;
 
     //add more room for the rows
     size_t rowSize = sizeof(struct Row);
@@ -410,7 +424,15 @@ void editorInsertChar(int c) {
         return;
     }
 
+    ++currentTab->changesCount;
+
+    /*
     if ((currentSession.cursorRow) >= (currentTab->numRows)) {
+        editorAppendRow("", 0);
+    }
+    */
+
+    if (NULL == getCurrentRow()) {
         editorAppendRow("", 0);
     }
 
@@ -445,6 +467,8 @@ void editorInsertNewRow() {
         fatal("No current tab (append row)");
         return;
     }
+
+    ++currentTab->changesCount;
 
     int currentRowIdx = currentSession.cursorRow;
     int nextRowIdx = currentRowIdx + 1;
@@ -514,11 +538,27 @@ void editorInsertNewRow() {
 
 void editorScroll() {
 
+
     if (currentSession.cursorRow < currentSession.rowOffset) {
         currentSession.rowOffset = currentSession.cursorRow;
+    } else if (currentSession.locked) {
+        currentSession.rowOffset = (currentSession.cursorRow - env.screenRows) + 2;
     } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
         currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
     }
+
+    /*
+    if(currentSession.locked) {
+
+    } else {
+        if (currentSession.cursorRow < currentSession.rowOffset) {
+            currentSession.rowOffset = currentSession.cursorRow;
+        } else if (currentSession.cursorRow >= (currentSession.rowOffset + env.usableTextScreenRows)) {
+            currentSession.rowOffset = (currentSession.cursorRow - env.usableTextScreenRows) + 1;
+        }
+    }
+    */
+
 
     if (currentSession.cursorCol < currentSession.colOffset) {
         currentSession.colOffset = currentSession.cursorCol;
@@ -536,6 +576,8 @@ void editorRemoveRow() {
         fatal("Not tab is currently loaded (editorRemoveRow)");
         return;
     }
+
+    ++currentTab->changesCount;
 
     struct Row *currentRow = getCurrentRow();
     int currentRowIdx = currentSession.cursorRow;
@@ -598,21 +640,29 @@ void editorBackspace() {
         return;
     }
 
+    struct Tab *tab = getCurrentTab();
+    ++tab->changesCount;
+
     int pos = currentSession.cursorCol;
 
-    if (pos < 1) {
+    if (pos < 1 && (!currentSession.locked)) {
         editorRemoveRow();
         return;
     } else if (pos > row->rawSize) {
         return;
     }
 
-    //We delete the char before
-    memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
-    row->rawContent = realloc(row->rawContent, (size_t) (row->rawSize));
 
-    --(row->rawSize);
-    --(currentSession.cursorCol);
+    if (currentSession.cursorCol > 0) {
+
+        //We delete the char before
+        memmove(&row->rawContent[pos - 1], &row->rawContent[pos], (size_t) (row->rawSize - (pos - 1) - 1));
+        row->rawContent = realloc(row->rawContent, (size_t) (row->rawSize));
+
+        --(row->rawSize);
+
+        --(currentSession.cursorCol);
+    }
 }
 
 /*** file i/o ***/
@@ -703,6 +753,7 @@ void createTab() {
     currTab->numRows = 0;
     currTab->rows = NULL;
     currTab->fileName = NULL;
+    currTab->changesCount = 0;
 }
 
 void editorOpen(char *filename) {
@@ -779,6 +830,8 @@ void init() {
     currentSession.currentTabIdx = -1;
     currentSession.numTabs = 0;
 
+    currentSession.locked = 0;
+
     int *cols = &env.screenCols;
     int *rows = &env.screenRows;
 
@@ -788,7 +841,7 @@ void init() {
         *rows = 10;
     }
 
-    env.usableTextScreenRows = *rows - 2;
+    env.usableTextScreenRows = *rows - 3;
 }
 
 void disableRawMode() {
@@ -881,6 +934,20 @@ void editorDrawStatusBar(struct SmallStr *str) {
     editorNormalColor(str);
 }
 
+void editorDrawStatusRow(struct SmallStr *str) {
+
+    struct Row row = currentSession.messageRow;
+
+    //if (NULL != row) {
+    appendToStr(str, (row.rawContent + currentSession.colOffset), row.rawSize);
+    //} else {
+    // fatal("NO STATUS ROW");
+    //}
+
+    eraseLineFromCursor(str);
+    appendToStr(str, "\r\n", 2);
+}
+
 void editorDrawRows(struct SmallStr *str) {
 
     struct Tab *tab = getCurrentTab();
@@ -939,6 +1006,9 @@ void editorDrawRows(struct SmallStr *str) {
         eraseLineFromCursor(str);
         appendToStr(str, "\r\n", 2);
     }
+
+    eraseLineFromCursor(str);
+    appendToStr(str, "\r\n", 2);
 }
 
 void editorRefreshScreen() {
@@ -951,13 +1021,22 @@ void editorRefreshScreen() {
     appendToStr(&str, "\x1b[H", 3);
 
     editorDrawRows(&str);
+    editorDrawStatusRow(&str);
     editorDrawStatusBar(&str);
 
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH",
-             (currentSession.cursorRow - currentSession.rowOffset) + 1,
-             (currentSession.cursorCol - currentSession.colOffset) + 1);
+
+    if (currentSession.locked) {
+        snprintf(buf, sizeof(buf), "\x1b[%d;%dH",
+                 (currentSession.cursorRow) + 1,// - currentSession.rowOffset
+                 (currentSession.cursorCol) + 1);// - currentSession.colOffset
+    } else {
+        snprintf(buf, sizeof(buf), "\x1b[%d;%dH",
+                 (currentSession.cursorRow - currentSession.rowOffset) + 1,
+                 (currentSession.cursorCol - currentSession.colOffset) + 1);
+    }
+
 
     appendToStr(&str, buf, (int) strlen(buf));
 
@@ -1011,6 +1090,8 @@ void editorCursorMove(int code) {
 
     struct Row *row = getCurrentRow();
 
+    if (currentSession.locked) return;
+
     switch (code) {
         case ARROW_UP:
             if (currentSession.cursorRow > 0) {
@@ -1019,7 +1100,6 @@ void editorCursorMove(int code) {
             }
             break;
         case ARROW_DOWN:
-
             if (currentSession.cursorRow < (currentTab->numRows)) {
                 currentSession.cursorRow++;
                 snapAtEndIfPast();
@@ -1046,7 +1126,6 @@ void editorCursorMove(int code) {
     }
 }
 
-
 void processKeyPress() {
     int c = readKey();
 
@@ -1055,7 +1134,11 @@ void processKeyPress() {
             fatal("Someone pressed enter! :D");
             break;
         case '\n':
-            editorInsertNewRow();
+            if (currentSession.locked) {
+                currentSession.locked = 0;
+            } else {
+                editorInsertNewRow();
+            }
             break;
         case CTRL_KEY('q'): {
             struct SmallStr str = SMALLSTR_INIT;
@@ -1122,6 +1205,39 @@ void processKeyPress() {
     }
 }
 
+void editorPrompt(char *msg, int msgLen) {
+
+    struct Row *messageRow = &currentSession.messageRow;
+
+    int previousRow = currentSession.cursorRow;
+    int previousCol = currentSession.cursorCol;
+
+    //if(NULL != messageRow) {
+    //  free(messageRow);
+    //}
+
+    //messageRow = malloc(sizeof(struct Row));
+
+    messageRow->rawContent = realloc(messageRow->rawContent, (size_t) msgLen);
+    messageRow->rawSize = msgLen;
+    memcpy(messageRow->rawContent, msg, (size_t) msgLen);
+
+    currentSession.cursorRow = env.screenRows - 2;
+    currentSession.cursorCol = msgLen;
+
+    currentSession.locked = 1;
+
+    while (currentSession.locked) {
+        editorRefreshScreen();
+        processKeyPress();
+    }
+
+    currentSession.cursorRow = previousRow;
+    currentSession.cursorCol = previousCol;
+
+    //free(msg);
+}
+
 
 int main(int argc, char *argv[]) {
 
@@ -1131,6 +1247,8 @@ int main(int argc, char *argv[]) {
     for (int argPos = 1; argPos < argc; ++argPos) {
         editorOpen(argv[argPos]);
     }
+
+    editorPrompt("Hello world!", 12);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
