@@ -17,6 +17,8 @@
 // allows to get the keycode of a ctrl+something key
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+//TODO : The home and end shortcuts don't seem to work properly
+//TODO : Add a way to save new files
 
 enum EditorKey {
     BACKSPACE = 127,
@@ -573,6 +575,42 @@ void editorScroll() {
 }
 
 
+void deleteRowAtIdx(int idx) {
+
+    struct Tab *currentTab = getCurrentTab();
+
+    if (NULL == currentTab) {
+        fatal("No current tab (del row at idx)");
+        return;
+    }
+
+    int len = currentTab->numRows - idx;
+
+    memmove(&currentTab->rows[idx], &currentTab->rows[idx + 1], sizeof(struct Row) * len);
+    currentTab->rows = realloc(currentTab->rows, sizeof(struct Row) * (currentTab->numRows - 1));
+    --currentTab->numRows;
+    /*
+    if (idx > 0) {
+        int curCursorRow = currentSession.cursorRow;
+        currentSession.cursorRow = idx - 1;
+
+        struct Row *previousRow = getCurrentRow();
+
+        if (previousRow) {
+            currentSession.cursorCol = previousRow->rawSize;
+
+            if (previousRow->rawSize < env.screenCols) {
+                currentSession.colOffset = 0;
+            } else {
+                editorScroll();
+            }
+        }
+        currentSession.cursorRow = curCursorRow;
+    }
+     */
+}
+
+//TODO this method does way more than remove a row, we should fix that
 void editorRemoveRow() {
 
     struct Tab *currentTab = getCurrentTab();
@@ -635,6 +673,58 @@ void editorRemoveRow() {
     }
 }
 
+
+void editorDelKey() {
+    struct Row *row = getCurrentRow();
+
+    if (!row) {
+        if (currentSession.cursorRow > 0) {
+            --currentSession.cursorRow;
+        }
+        return;
+    }
+
+    struct Tab *tab = getCurrentTab();
+    ++tab->changesCount;
+
+    int pos = currentSession.cursorCol;
+
+
+    if (currentSession.cursorCol < row->rawSize) {
+        if (currentSession.locked && ((currentSession.cursorCol - 1) < currentSession.messageLength)) {
+            return;
+        }
+
+        //We delete the char after
+        memmove(&row->rawContent[pos], &row->rawContent[pos + 1], (size_t) (row->rawSize - (pos - 1) - 1));
+        row->rawContent = realloc(row->rawContent, (size_t) (row->rawSize));
+
+        --(row->rawSize);
+
+    } else if (!currentSession.locked) {
+
+        ++currentSession.cursorRow;
+        struct Row *nextRow = getCurrentRow();
+        --currentSession.cursorRow;
+
+        int currentSize = row->rawSize;
+
+        row->rawContent = realloc(row->rawContent,
+                                  (size_t) (nextRow->rawSize +
+                                            row->rawSize + 1));
+
+        memcpy(&row->rawContent[currentSize], nextRow->rawContent, (size_t) nextRow->rawSize);
+
+        row->rawSize += nextRow->rawSize;
+        row->rawContent[row->rawSize] = '\0';
+
+        //that line is about to be deleted, so let's clear it up
+        free(nextRow->rawContent);
+
+        deleteRowAtIdx(currentSession.cursorRow + 1);
+    }
+}
+
 void editorBackspace() {
     struct Row *row = getCurrentRow();
 
@@ -659,7 +749,6 @@ void editorBackspace() {
 
 
     if (currentSession.cursorCol > 0) {
-// TODO : Somehow currentSession.messagelength does not set to the right value, it seems its < 1
         if (currentSession.locked && ((currentSession.cursorCol - 1) < currentSession.messageLength)) {
             return;
         }
@@ -751,7 +840,7 @@ void editorSave() {
 static size_t tabSize = sizeof(struct Tab);
 
 void createTab() {
-
+    const int i = 0;
     const int currentTabCount = currentSession.numTabs;
 
     currentSession.tabs = realloc(currentSession.tabs, tabSize * (currentTabCount + 1));
@@ -1223,10 +1312,12 @@ void processKeyPress() {
             break;
         case BACKSPACE:
         case CTRL_KEY('h'):
-        case DEL_KEY:
             editorBackspace();
             break;
-
+        case DEL_KEY: {
+            editorDelKey();
+        }
+            break;
         case CTRL_KEY('l'):
         case '\x1b':
             break;
@@ -1332,6 +1423,11 @@ int main(int argc, char *argv[]) {
     for (int argPos = 1; argPos < argc; ++argPos) {
         editorOpen(argv[argPos], 1);
     }
+
+    if (currentSession.numTabs < 1) {
+        createTab();
+    }
+    currentSession.currentTabIdx = 0;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
