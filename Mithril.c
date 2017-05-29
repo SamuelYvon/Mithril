@@ -13,12 +13,9 @@
 
 #define VERSION "1.0.0"
 
-
-// allows to get the keycode of a ctrl+something key
+// allows to get the keycode of a ctrl+something key, that macro thing
+// is definetly new to me
 #define CTRL_KEY(k) ((k) & 0x1f)
-
-//TODO : The home and end shortcuts don't seem to work properly
-//TODO : Add a way to save new files
 
 enum EditorKey {
     BACKSPACE = 127,
@@ -868,7 +865,6 @@ void editorSave() {
 static size_t tabSize = sizeof(struct Tab);
 
 void createTab() {
-    const int i = 0;
     const int currentTabCount = currentSession.numTabs;
 
     currentSession.tabs = realloc(currentSession.tabs, tabSize * (currentTabCount + 1));
@@ -1339,12 +1335,12 @@ void processKeyPress() {
             }
         }
             break;
-        case HOME_KEY:
+        case HOME_KEY: {
+            moveToBeginningOfLine();
+        }
+            break;
         case END_KEY: {
-            int times = env.screenCols;
-            while ((times--) > 0) {
-                editorCursorMove((c == HOME_KEY) ? ARROW_LEFT : ARROW_RIGHT);
-            }
+            moveToEndOfLine();
         }
             break;
         case BACKSPACE:
