@@ -810,6 +810,8 @@ char *editorRowsToString(int *bufLen) {
     return buf;
 }
 
+void editorPrompt(char *msg, int msgLen);
+
 void editorSave() {
 
     struct Tab *tab = getCurrentTab();
@@ -820,8 +822,34 @@ void editorSave() {
     }
 
     if (NULL == tab->fileName) {
-        return;
+        const int msgLen = 46;
+        editorPrompt("Please enter a file name (or none to cancel): ", msgLen);
+
+        int responseLength = currentSession.messageRow.rawSize - msgLen + 1;
+
+        if (responseLength > 0) {
+            tab->fileName = malloc((size_t) sizeof(char) * responseLength);
+
+            if (NULL == tab->fileName) {
+                fatal("Failed to malloc the length of the message filename required");
+                return;
+            }
+
+            tab->fileName = memcpy(
+                    tab->fileName,
+                    &currentSession.messageRow.rawContent[msgLen],
+                    (size_t) sizeof(char) * responseLength);
+
+            if (NULL == tab->fileName) {
+                fatal("Failed to copy the content of the filename into the tab struct");
+                return;
+            }
+
+        } else {
+            return;
+        }
     }
+
 
     int len;
     char *buf = editorRowsToString(&len);
@@ -1053,9 +1081,18 @@ void editorDrawStatusBar(struct SmallStr *str) {
 
     char *fileName = tab->fileName;
 
-    int statusLen =
-            snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s",
-                     row, col, currentTab, totalTab, fileName);
+    int statusLen;
+
+    if (NULL == fileName) {
+        statusLen =
+                snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File never saved / new file",
+                         row, col, currentTab, totalTab);
+
+    } else {
+        statusLen =
+                snprintf(status, sizeof(status), "Line %d, Column %d, Tab %d of %d, File %s",
+                         row, col, currentTab, totalTab, fileName);
+    }
 
     if (statusLen > env.screenCols) {
         statusLen = env.screenCols;
