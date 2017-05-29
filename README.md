@@ -6,8 +6,9 @@ I am also learning C through it, as it is my very first C project ever.
 
 I am inspiring myself of the tutorial found [here](http://viewsourcecode.org/snaptoken/kilo/index.html)
 
-# Features:
+# Fonctionalities:
 
-- Tabs
-- Not fully working
+- Multiple editing tabs (but not all visible at the same time)
+- Opening / Saving / Creating files
+- It converts tabs to four spaces (yes)
 
